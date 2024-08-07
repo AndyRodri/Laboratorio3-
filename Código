@@ -1,0 +1,162 @@
+// Universidad del Valle
+// Electrónica Digital 2
+// Profesora: Joseline Ortíz 
+// Auxiliar: Rodolfo Urizar 
+// Estudiantes: Jose Aguilar y Andrea Samayoa 
+// Contador binario con LEDs e interrupciones
+
+#include <Arduino.h>
+#include <stdint.h>
+
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
+// Variables globales
+volatile int contador = 0;
+volatile int contadorAnterior = 0;
+#define LED1 23
+#define LED2 22
+#define LED3 21
+#define LED4 19
+#define LED5 13
+#define LED6 12
+#define LED7 27
+#define LED8 26
+#define LED_IGUAL 33
+#define REINICIO 25
+
+// Configuración del temporizador
+hw_timer_t *temporizador = NULL;
+
+volatile int indiceSecuencia = 0;
+
+// Secuencia de estados de los LEDs
+int secuencia[16][4] = {
+    {LOW, LOW, LOW, LOW},
+    {LOW, LOW, LOW, HIGH},
+    {LOW, LOW, HIGH, LOW},
+    {LOW, LOW, HIGH, HIGH},
+    {LOW, HIGH, LOW, LOW},
+    {LOW, HIGH, LOW, HIGH},
+    {LOW, HIGH, HIGH, LOW},
+    {LOW, HIGH, HIGH, HIGH},
+    {HIGH, LOW, LOW, LOW},
+    {HIGH, LOW, LOW, HIGH},
+    {HIGH, LOW, HIGH, LOW},
+    {HIGH, LOW, HIGH, HIGH},
+    {HIGH, HIGH, LOW, LOW},
+    {HIGH, HIGH, LOW, HIGH},
+    {HIGH, HIGH, HIGH, LOW},
+    {HIGH, HIGH, HIGH, HIGH}
+};
+
+// Función de manejo del temporizador
+void IRAM_ATTR manejarTemporizador() {
+    // Cambia el estado de los LEDs según el índice actual de la secuencia
+    digitalWrite(LED5, secuencia[indiceSecuencia][0]);
+    digitalWrite(LED6, secuencia[indiceSecuencia][1]);
+    digitalWrite(LED7, secuencia[indiceSecuencia][2]);
+    digitalWrite(LED8, secuencia[indiceSecuencia][3]);
+
+    // Incrementa el índice de la secuencia
+    indiceSecuencia = (indiceSecuencia + 1) % 16;
+}
+
+// Prototipos de funciones
+void mostrarEnBinario(uint8_t numero);
+
+// Estructura para los botones
+struct Boton {
+    const uint8_t PIN;
+    bool presionado;
+};
+
+// Definición de los botones
+Boton INCREMENTAR = {4, false};
+Boton DECREMENTAR = {5, false};
+
+// ISR para incrementar
+void IRAM_ATTR incrementar_isr() {
+    portENTER_CRITICAL_ISR(&mux);
+    contador = (contador + 1) % 16;
+    INCREMENTAR.presionado = true;
+    mostrarEnBinario(contador);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+// ISR para decrementar
+void IRAM_ATTR decrementar_isr() {
+    portENTER_CRITICAL_ISR(&mux);
+    contador = (contador - 1) % 16;
+    DECREMENTAR.presionado = true;
+    mostrarEnBinario(contador);
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+// ISR para reiniciar el contador
+void IRAM_ATTR reiniciar_isr() {
+    portENTER_CRITICAL_ISR(&mux);
+    indiceSecuencia = 0;
+    portEXIT_CRITICAL_ISR(&mux);
+}
+
+// Configuración inicial
+void setup() {
+    // Configuración de pines
+    pinMode(INCREMENTAR.PIN, INPUT_PULLDOWN);
+    attachInterrupt(INCREMENTAR.PIN, incrementar_isr, RISING);
+    pinMode(DECREMENTAR.PIN, INPUT_PULLUP);
+    attachInterrupt(DECREMENTAR.PIN, decrementar_isr, FALLING);
+    pinMode(LED1, OUTPUT);
+    pinMode(LED2, OUTPUT);
+    pinMode(LED3, OUTPUT);
+    pinMode(LED4, OUTPUT);
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    digitalWrite(LED3, LOW);
+    digitalWrite(LED4, LOW);
+
+    pinMode(LED5, OUTPUT);
+    pinMode(LED6, OUTPUT);
+    pinMode(LED7, OUTPUT);
+    pinMode(LED8, OUTPUT);
+    pinMode(REINICIO, INPUT_PULLUP);
+    attachInterrupt(REINICIO, reiniciar_isr, FALLING);
+
+    pinMode(LED_IGUAL, OUTPUT);
+    digitalWrite(LED_IGUAL, LOW);
+
+    // Configuración del temporizador
+    temporizador = timerBegin(0, 80, true); // Temporizador 0, divisor de reloj 80
+    timerAttachInterrupt(temporizador, &manejarTemporizador, true); // Adjuntar la función de manejo de interrupción
+    timerAlarmWrite(temporizador, 250000, true); // Interrupción cada 250ms
+    timerAlarmEnable(temporizador);
+}
+
+// Bucle principal
+void loop() {
+    if (INCREMENTAR.presionado) {
+        INCREMENTAR.presionado = false;
+        delay(200);
+    }
+    if (DECREMENTAR.presionado) {
+        DECREMENTAR.presionado = false;
+        delay(200);
+    }
+    // Verifica que ambos contadores sean iguales
+    if (contador == indiceSecuencia - 1 && contador != contadorAnterior) {
+        // Enciende un LED y reinicia el contador del temporizador
+        digitalWrite(LED_IGUAL, HIGH);
+        indiceSecuencia = 0;
+        delay(250);
+        digitalWrite(LED_IGUAL, LOW);
+        contadorAnterior = contador;
+    }
+}
+
+// Función para mostrar el número en binario usando los LEDs
+void mostrarEnBinario(uint8_t numero) {
+    digitalWrite(LED1, numero & 0x01);
+    digitalWrite(LED2, (numero >> 1) & 0x01);
+    digitalWrite(LED3, (numero >> 2) & 0x01);
+    digitalWrite(LED4, (numero >> 3) & 0x01);
+}
